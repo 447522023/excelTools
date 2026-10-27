@@ -1,0 +1,5 @@
+# 开发与离线打包额外依赖(线上部署只需 requirements.txt)
+-r requirements.txt
+pytest>=8
+pywebview>=5.1
+pyinstaller>=6.10

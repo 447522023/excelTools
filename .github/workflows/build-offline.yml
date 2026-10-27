@@ -1,0 +1,57 @@
+# 三平台离线客户端构建(PyInstaller 不支持交叉编译,用 CI 矩阵各建各的)
+# 产物为 artifact,在 Actions 运行页下载;需上架到"页面下载入口"时,
+# 把文件放入服务器 server/downloads/ 即可(或改用 release 上传)。
+name: build-offline
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Linux 上 pywebview 走 GTK + WebKit2GTK 后端,PyGObject 编译需要这些系统库
+      # (包名对应 ubuntu-24.04;runner 升级后若有变动在此调整)
+      - name: Install GTK/WebKit system deps (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgirepository1.0-dev gir1.2-webkit2-4.1 libwebkit2gtk-4.1-dev
+
+      - name: Install Python deps
+        run: pip install -r server/requirements-dev.txt
+
+      - name: Install pywebview GTK backend (Linux)
+        if: matrix.platform == 'linux'
+        run: pip install 'pywebview[gtk]'
+
+      - name: Build offline client
+        run: python client/build_offline.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: excel-compare-${{ matrix.platform }}
+          path: server/downloads/
+          if-no-files-found: error

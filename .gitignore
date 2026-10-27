@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+
+# Node
+node_modules/
+
+# 前端构建产物(源码构建:web/ 下 npm run build / build:offline)
+web/dist/
+web/dist-offline/
+
+# 离线版打包产物(PyInstaller / 打包脚本生成)
+client/build/
+client/dist/
+client/__pycache__/
+client/webapp/
+
+# 安装包与下载目录运行时内容(说明文件保留)
+server/downloads/*
+!server/downloads/README.md
+
+# 本地部署暂存与发布包
+/excel_tools/
+/excel_tools-0.1.0-deploy.zip
+
+# 冒烟测试产物
+server/.smoke/
+
+# 个人发布物料(截图已挑选用例进 docs/img)
+linkedin/
+
+# 日志与系统文件
+*.log
+.DS_Store
+Thumbs.db
