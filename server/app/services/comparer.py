@@ -3,7 +3,7 @@
 匹配规则:关键列的值拼接为元组作为行的 key;重复 key 按出现顺序两两配对
 (第 1 个对第 1 个、第 2 个对第 2 个……),多出的落到"仅单侧"。
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -21,6 +21,8 @@ class CompareOutcome:
     columns: list[str]
     rows: list[dict]
     summary: dict[str, int]
+    # 名字对不上、只在一侧存在的列(无法参与对比),如实报告而不是悄悄丢弃
+    unmatched_columns: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _group_rows(df: pd.DataFrame, key_cols: list[str]) -> dict[tuple, list[int]]:
@@ -39,6 +41,10 @@ def compare_tables(
     compare_columns: list[str] | None = None,
 ) -> CompareOutcome:
     shared = [c for c in df_a.columns if c in df_b.columns]
+    unmatched_columns = {
+        "仅表A的列": [c for c in df_a.columns if c not in df_b.columns],
+        "仅表B的列": [c for c in df_b.columns if c not in df_a.columns],
+    }
     if compare_columns is None:
         compare_columns = [c for c in shared if c not in keys_a]
     else:
@@ -106,4 +112,6 @@ def compare_tables(
                         row[f"{c}（B）"] = df_b.at[list_b[i], c]
                     rows.append(row)
 
-    return CompareOutcome(columns=columns, rows=rows, summary=summary)
+    return CompareOutcome(
+        columns=columns, rows=rows, summary=summary, unmatched_columns=unmatched_columns
+    )

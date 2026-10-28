@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('G:/excel_tools/client/webapp', 'webapp')]
+datas = [('G:\\excel_tools\\client\\webapp', 'webapp')]
 binaries = []
 hiddenimports = []
 datas += collect_data_files('charset_normalizer')
@@ -11,8 +11,8 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['G:/excel_tools/client/launcher.py'],
-    pathex=['G:/excel_tools/server'],
+    ['G:\\excel_tools\\client\\launcher.py'],
+    pathex=['G:\\excel_tools\\server'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

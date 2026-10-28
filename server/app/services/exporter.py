@@ -64,9 +64,27 @@ def to_xlsx(outcome: CompareOutcome) -> bytes:
         width = max(len(str(name)), *(len(str(row.get(name, ""))) for row in outcome.rows[:200])) + 4
         ws.column_dimensions[get_column_letter(i)].width = min(width, 45)
 
+    _append_unmatched_sheet(wb, outcome)
+
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def _append_unmatched_sheet(wb: Workbook, outcome: CompareOutcome) -> None:
+    """名字对不上、未参与对比的列单独列一页,避免"列悄悄消失"的疑惑"""
+    items = [(side, col) for side, cols in outcome.unmatched_columns.items() for col in cols]
+    if not items:
+        return
+    ws = wb.create_sheet("未对比的列")
+    ws.append(["所属", "列名"])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+        cell.fill = _HEADER_FILL
+    for side, col in items:
+        ws.append([side, col])
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 40
 
 
 def to_csv(outcome: CompareOutcome) -> bytes:

@@ -24,7 +24,8 @@ server/downloads/*
 
 # 本地部署暂存与发布包
 /excel_tools/
-/excel_tools-0.1.0-deploy.zip
+/excel_tools-*-deploy.zip
+/excel_tools-*-deploy/
 
 # 冒烟测试产物
 server/.smoke/

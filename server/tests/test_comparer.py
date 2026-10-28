@@ -64,3 +64,27 @@ def test_numeric_normalization():
     out = compare_tables(df_a, df_b, ["编号"], ["编号"], MODE_SAME)
     # "10" 与 "10.0" 规范化后都是 "10",应视为一致
     assert out.summary[STATUS_SAME] == 1
+
+
+def test_unmatched_columns_reported():
+    # 只在一侧存在的列应如实报告,而不是悄悄从结果里消失
+    df_b = make({"编号": ["1", "2", "4"], "名称": ["甲", "乙改", "丁"], "数量": ["10", "25", "40"], "备注": ["a", "b", "c"]})
+    out = compare_tables(DF_A, df_b, ["编号"], ["编号"], MODE_DIFF)
+    assert out.unmatched_columns == {"仅表A的列": [], "仅表B的列": ["备注"]}
+    assert "备注" not in out.columns
+
+
+def test_export_lists_unmatched_columns():
+    import io
+
+    from openpyxl import load_workbook
+
+    from app.services.exporter import to_xlsx
+
+    df_b = make({"编号": ["1"], "名称": ["甲"], "数量": ["10"], "备注": ["x"]})
+    df_a = make({"编号": ["1"], "名称": ["甲"], "数量": ["10"]})
+    out = compare_tables(df_a, df_b, ["编号"], ["编号"], MODE_SAME)
+    wb = load_workbook(io.BytesIO(to_xlsx(out)))
+    ws = wb["未对比的列"]
+    rows = [[c.value for c in r] for r in ws.iter_rows()]
+    assert rows == [["所属", "列名"], ["仅表B的列", "备注"]]

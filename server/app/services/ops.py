@@ -117,6 +117,7 @@ def compare_page(store: FileStore, payload: dict) -> dict:
         "columns": outcome.columns,
         "rows": rows,
         "summary": outcome.summary,
+        "unmatched_columns": {k: v for k, v in outcome.unmatched_columns.items() if v},
     }
 
 

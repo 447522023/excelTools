@@ -60,6 +60,8 @@ export interface CompareResponse {
   columns: string[]
   rows: Record<string, string>[]
   summary: Record<string, number>
+  /** 名字对不上、未参与对比的列:"仅表A的列" / "仅表B的列" */
+  unmatched_columns?: Record<string, string[]>
 }
 
 export interface ExportRequest extends Omit<CompareRequest, 'page' | 'page_size'> {

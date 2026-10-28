@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import {
+  NAlert,
   NButton,
   NCard,
   NDataTable,
@@ -43,6 +44,15 @@ const summaryChips = computed(() => {
     { label: '仅表A有', num: s['仅表A'] ?? 0, color: '#d97706' },
     { label: '仅表B有', num: s['仅表B'] ?? 0, color: '#2563eb' },
   ]
+})
+
+// 名字对不上、未参与对比的列,如实提示而不是悄悄丢掉
+const unmatchedTip = computed(() => {
+  const u = data.value?.unmatched_columns ?? {}
+  const parts: string[] = []
+  if (u['仅表A的列']?.length) parts.push(`仅表A有:${u['仅表A的列'].join('、')}`)
+  if (u['仅表B的列']?.length) parts.push(`仅表B有:${u['仅表B的列'].join('、')}`)
+  return parts.join(';')
 })
 
 const tableColumns = computed<DataTableColumns<Record<string, string>>>(() =>
@@ -115,6 +125,10 @@ onMounted(load)
         <div class="label">{{ chip.label }}</div>
       </div>
     </div>
+
+    <n-alert v-if="unmatchedTip" type="warning" :bordered="false" style="margin-bottom: 8px">
+      以下列在两个表中名字对不上,未参与对比(可检查表头行选择或表头内容):{{ unmatchedTip }}
+    </n-alert>
 
     <div style="font-size: 12px; color: #7a8699; margin-bottom: 8px">
       结果共 {{ data?.total ?? 0 }} 行,表格内滚动查看全部

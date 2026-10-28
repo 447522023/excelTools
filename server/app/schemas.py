@@ -61,6 +61,8 @@ class CompareResponse(BaseModel):
     columns: list[str]
     rows: list[dict[str, str]]
     summary: dict[str, int]
+    # 名字对不上、只在一侧存在的列(未参与对比):"仅表A的列" / "仅表B的列"
+    unmatched_columns: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class ExportRequest(CompareRequest):
