@@ -1,11 +1,18 @@
-"""对比引擎:按关键列匹配行,输出"找不同 / 找相同"结果。
+"""对比引擎。
 
-匹配规则:关键列的值拼接为元组作为行的 key;重复 key 按出现顺序两两配对
-(第 1 个对第 1 个、第 2 个对第 2 个……),多出的落到"仅单侧"。
+两种范式:
+- 关键列模式(找不同/找相同):按关键列的值匹配行,适合业务表(工号/单号对齐),
+  天然免疫插行、删行、行序打乱;
+- 坐标模式(坐标对比):按单元格坐标逐格比较值与公式,适合无关键列的表
+  (值班表/矩阵),与"专业 diff 工具"语义一致,行级聚合输出。
+
+匹配规则(关键列模式):关键列的值拼接为元组作为行的 key;重复 key 按出现顺序
+两两配对(第 1 个对第 1 个、第 2 个对第 2 个……),多出的落到"仅单侧"。
 """
 from dataclasses import dataclass, field
 
 import pandas as pd
+from openpyxl.utils import get_column_letter
 
 STATUS_ONLY_A = "仅表A"
 STATUS_ONLY_B = "仅表B"
@@ -14,6 +21,7 @@ STATUS_SAME = "一致"
 
 MODE_DIFF = "diff"
 MODE_SAME = "same"
+MODE_CELL = "cell"
 
 
 @dataclass
@@ -115,3 +123,113 @@ def compare_tables(
     return CompareOutcome(
         columns=columns, rows=rows, summary=summary, unmatched_columns=unmatched_columns
     )
+
+
+# ---------------- 坐标模式:按单元格坐标逐格比较(值 + 公式) ----------------
+
+
+def _display(v: str | None) -> str:
+    return "(空)" if v is None or v == "" else v
+
+
+def _row_digest(values: list[str], side: str) -> str:
+    """单侧独有行的内容摘要:非空值取前若干个,避免整行刷屏"""
+    picked = [v for v in values if v != ""][:8]
+    text = "、".join(picked)
+    if len(text) > 100:
+        text = text[:100] + "…"
+    return f"整行仅{side}存在" + (f":{text}" if text else "")
+
+
+def compare_grids(
+    grid_a: list[list[str]],
+    grid_b: list[list[str]],
+    formulas_a: dict[tuple[int, int], str] | None = None,
+    formulas_b: dict[tuple[int, int], str] | None = None,
+    mode: str = MODE_DIFF,
+) -> CompareOutcome:
+    """坐标对比:第 i 行对第 i 行、第 j 列对第 j 列,输出行级聚合差异。
+
+    - 值不一致的格:明细为 "B6: 旧 → 新";
+    - 仅公式文本变化(值相同):明细为 "B1: [公式] =A1+1 → =1+A1";
+    - 一侧多出的行:按行报"仅表A/仅表B",附内容摘要。
+    """
+    formulas_a = formulas_a or {}
+    formulas_b = formulas_b or {}
+    columns = ["状态", "行号(A)", "行号(B)", "差异格数", "差异明细"]
+    summary = {
+        "表A总行数": len(grid_a),
+        "表B总行数": len(grid_b),
+        STATUS_CHANGED: 0,
+        STATUS_ONLY_A: 0,
+        STATUS_ONLY_B: 0,
+        "差异格": 0,
+        "公式差异格": 0,
+    }
+    rows: list[dict] = []
+
+    common = min(len(grid_a), len(grid_b))
+    for r in range(common):
+        row_a, row_b = grid_a[r], grid_b[r]
+        blank_a = all(v == "" for v in row_a)
+        blank_b = all(v == "" for v in row_b)
+        if blank_a and blank_b:
+            continue
+        parts: list[str] = []
+        for c in range(max(len(row_a), len(row_b))):
+            va = row_a[c] if c < len(row_a) else ""
+            vb = row_b[c] if c < len(row_b) else ""
+            fa = formulas_a.get((r, c))
+            fb = formulas_b.get((r, c))
+            value_diff = va != vb
+            formula_diff = (fa or None) != (fb or None)
+            if not value_diff and not formula_diff:
+                continue
+            addr = f"{get_column_letter(c + 1)}{r + 1}"
+            summary["差异格"] += 1
+            if formula_diff:
+                summary["公式差异格"] += 1
+            if value_diff and formula_diff:
+                parts.append(f"{addr}: {_display(va)} → {_display(vb)}（公式 {_display(fa)} → {_display(fb)}）")
+            elif value_diff:
+                parts.append(f"{addr}: {_display(va)} → {_display(vb)}")
+            else:
+                parts.append(f"{addr}: [公式] {_display(fa)} → {_display(fb)}")
+        if parts:
+            summary[STATUS_CHANGED] += 1
+            if mode == MODE_DIFF:
+                rows.append(
+                    {
+                        "状态": STATUS_CHANGED,
+                        "行号(A)": str(r + 1),
+                        "行号(B)": str(r + 1),
+                        "差异格数": str(len(parts)),
+                        "差异明细": "；".join(parts),
+                    }
+                )
+        elif mode == MODE_SAME:
+            rows.append(
+                {"状态": STATUS_SAME, "行号(A)": str(r + 1), "行号(B)": str(r + 1),
+                 "差异格数": "0", "差异明细": ""}
+            )
+
+    for r in range(common, len(grid_a)):
+        if all(v == "" for v in grid_a[r]):
+            continue
+        summary[STATUS_ONLY_A] += 1
+        if mode == MODE_DIFF:
+            rows.append(
+                {"状态": STATUS_ONLY_A, "行号(A)": str(r + 1), "行号(B)": "—", "差异格数": "",
+                 "差异明细": _row_digest(grid_a[r], "表A")}
+            )
+    for r in range(common, len(grid_b)):
+        if all(v == "" for v in grid_b[r]):
+            continue
+        summary[STATUS_ONLY_B] += 1
+        if mode == MODE_DIFF:
+            rows.append(
+                {"状态": STATUS_ONLY_B, "行号(A)": "—", "行号(B)": str(r + 1), "差异格数": "",
+                 "差异明细": _row_digest(grid_b[r], "表B")}
+            )
+
+    return CompareOutcome(columns=columns, rows=rows, summary=summary)

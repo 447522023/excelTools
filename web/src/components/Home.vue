@@ -11,6 +11,9 @@ import UploadPanel from './UploadPanel.vue'
 const message = useMessage()
 
 const step = ref(1)
+// 面板重建钥匙:仅在"重新开始"时变化,强制清空上传状态;
+// 平时往返各步骤用 v-show 保持挂载,已上传的表与所选工作表/表头行不丢失
+const panelKey = ref(0)
 
 // 第一步:两个文件(每个面板自己管理工作表/表头行,对外只暴露一个可对比的"表")
 const leftSel = ref<SheetSelection | null>(null)
@@ -73,6 +76,7 @@ function reset() {
   compareCols.value = []
   req.value = null
   step.value = 1
+  panelKey.value += 1
 }
 </script>
 
@@ -93,19 +97,19 @@ function reset() {
         <n-step title="查看结果" />
       </n-steps>
 
-      <template v-if="step === 1">
+      <div v-show="step === 1">
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px">
-          <UploadPanel v-model:selection="leftSel" label="表 A" />
-          <UploadPanel v-model:selection="rightSel" label="表 B" />
+          <UploadPanel :key="`L-${panelKey}`" v-model:selection="leftSel" label="表 A" />
+          <UploadPanel :key="`R-${panelKey}`" v-model:selection="rightSel" label="表 B" />
         </div>
         <div style="margin-top: 22px; display: flex; gap: 12px">
           <n-button type="primary" size="large" :disabled="!bothUploaded" @click="toStep2">
             下一步:配置对比
           </n-button>
         </div>
-      </template>
+      </div>
 
-      <template v-else-if="step === 2">
+      <template v-if="step === 2">
         <CompareConfig
           v-model:mode="mode"
           v-model:left-keys="leftKeys"
@@ -121,7 +125,7 @@ function reset() {
         />
       </template>
 
-      <template v-else-if="step === 3 && req">
+      <template v-if="step === 3 && req">
         <ResultView :req="req" @back="step = 2" @restart="reset" />
       </template>
     </main>

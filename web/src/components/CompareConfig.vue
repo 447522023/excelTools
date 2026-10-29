@@ -36,7 +36,16 @@ const keysPaired = computed(
   () => props.leftKeys.length > 0 && props.leftKeys.length === props.rightKeys.length,
 )
 const hasComparable = computed(() => comparableColumns.value.length > 0)
-const canRun = computed(() => keysPaired.value && hasComparable.value)
+const isCellMode = computed(() => props.mode === 'cell')
+const canRun = computed(() =>
+  isCellMode.value ? true : keysPaired.value && hasComparable.value,
+)
+
+const modeHint = computed(() => {
+  if (props.mode === 'cell')
+    return '坐标对比:按单元格位置逐格比较值与公式(无需关键列),适合无编号的表(值班表/矩阵);表中间插行/删行会像专业 diff 工具一样产生连锁差异,业务表建议用「找不同」'
+  return '找不同:输出仅表A有 / 仅表B有 / 两边都有但值不一致的行;找相同:输出两边都存在且内容一致的行'
+})
 
 const keyCountHint = computed(() => {
   if (props.leftKeys.length === props.rightKeys.length) return ''
@@ -62,12 +71,12 @@ const keyCountHint = computed(() => {
         >
           <n-radio-button value="diff">找不同</n-radio-button>
           <n-radio-button value="same">找相同</n-radio-button>
+          <n-radio-button value="cell">坐标对比</n-radio-button>
         </n-radio-group>
-        <div style="font-size: 12px; color: #7a8699; margin-top: 6px">
-          找不同:输出仅表A有 / 仅表B有 / 两边都有但值不一致的行;找相同:输出两边都存在且内容一致的行
-        </div>
+        <div style="font-size: 12px; color: #7a8699; margin-top: 6px">{{ modeHint }}</div>
       </div>
 
+      <template v-if="!isCellMode">
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
         <div>
           <div style="font-weight: 600; margin-bottom: 6px">表 A 关键列(用于匹配行)</div>
@@ -109,6 +118,7 @@ const keyCountHint = computed(() => {
           没有可比较的共有列:两表除关键列外没有同名列
         </div>
       </div>
+      </template>
 
       <n-space>
         <n-button @click="emit('back')">上一步</n-button>

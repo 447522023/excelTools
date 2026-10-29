@@ -36,7 +36,7 @@ export interface SheetSelection {
   row_count: number
 }
 
-export type CompareMode = 'diff' | 'same'
+export type CompareMode = 'diff' | 'same' | 'cell'
 
 export interface CompareRequest {
   left_file_id: string
@@ -62,6 +62,8 @@ export interface CompareResponse {
   summary: Record<string, number>
   /** 名字对不上、未参与对比的列:"仅表A的列" / "仅表B的列" */
   unmatched_columns?: Record<string, string[]>
+  /** 只在一侧存在的工作表:"仅表A的工作表" / "仅表B的工作表" */
+  unmatched_sheets?: Record<string, string[]>
 }
 
 export interface ExportRequest extends Omit<CompareRequest, 'page' | 'page_size'> {

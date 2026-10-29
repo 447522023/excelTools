@@ -8,6 +8,7 @@ from app.services.comparer import (
     STATUS_ONLY_A,
     STATUS_ONLY_B,
     STATUS_SAME,
+    compare_grids,
     compare_tables,
 )
 
@@ -88,3 +89,71 @@ def test_export_lists_unmatched_columns():
     ws = wb["未对比的列"]
     rows = [[c.value for c in r] for r in ws.iter_rows()]
     assert rows == [["所属", "列名"], ["仅表B的列", "备注"]]
+
+
+# ---------------- 坐标对比模式(compare_grids) ----------------
+
+GRID_A = [["编号", "姓名"], ["1", "甲"], ["2", "乙"], ["3", "丙"]]
+
+
+def test_cell_mode_basic_change():
+    grid_b = [["编号", "姓名"], ["1", "甲"], ["2", "乙改"], ["3", "丙"]]
+    out = compare_grids(GRID_A, grid_b)
+    assert out.summary["值不一致"] == 1
+    assert out.summary["差异格"] == 1
+    assert out.summary["仅表A"] == 0 and out.summary["仅表B"] == 0
+    row = out.rows[0]
+    assert row["差异明细"] == "B3: 乙 → 乙改"  # Excel 坐标:第 3 行 B 列
+    assert row["行号(A)"] == "3" and row["行号(B)"] == "3"
+
+
+def test_cell_mode_formula_only_change():
+    # 值相同、公式文本不同:必须报出来(公式差异格)
+    grid_b = [r[:] for r in GRID_A]
+    fa = {(1, 1): "=A2+1"}
+    fb = {(1, 1): "=1+A2"}
+    out = compare_grids(GRID_A, grid_b, fa, fb)
+    assert out.summary["差异格"] == 1
+    assert out.summary["公式差异格"] == 1
+    assert "[公式]" in out.rows[0]["差异明细"]
+
+
+def test_cell_mode_tail_row_added():
+    grid_b = GRID_A + [["4", "丁"]]
+    out = compare_grids(GRID_A, grid_b)
+    assert out.summary["值不一致"] == 0
+    assert out.summary["仅表B"] == 1 and out.summary["仅表A"] == 0
+    only_b = next(r for r in out.rows if r["状态"] == "仅表B")
+    assert only_b["行号(A)"] == "—" and only_b["行号(B)"] == "5"
+    assert "丁" in only_b["差异明细"]
+
+
+def test_cell_mode_tail_row_removed():
+    out = compare_grids(GRID_A, GRID_A[:3])
+    assert out.summary["仅表A"] == 1 and out.summary["值不一致"] == 0
+    only_a = next(r for r in out.rows if r["状态"] == "仅表A")
+    assert only_a["行号(A)"] == "4" and only_a["行号(B)"] == "—"
+
+
+def test_cell_mode_middle_delete_is_coordinate_shift():
+    # 坐标范式固有特性:中部删行会让后续行整体错位(2 行值不一致),不是 bug;
+    # 业务表遇到这种场景应使用关键列模式
+    grid_b = [["编号", "姓名"], ["1", "甲"], ["3", "丙"]]
+    out = compare_grids(GRID_A, grid_b)
+    assert out.summary["值不一致"] == 1  # "2,乙" 对上了 "3,丙"
+    assert out.summary["差异格"] == 2
+    assert out.summary["仅表A"] == 1  # 末行 "3,丙" 没有对手
+
+
+def test_cell_mode_empty_side():
+    out = compare_grids(GRID_A, [])
+    assert out.summary["仅表A"] == 4  # 含表头行在内的所有行
+    assert out.summary["值不一致"] == 0
+
+
+def test_cell_mode_blank_rows_skipped():
+    grid_a = [["a"], [""], ["b"]]
+    grid_b = [["a"], [""], ["b"]]
+    out = compare_grids(grid_a, grid_b)
+    assert out.summary["差异格"] == 0
+    assert not out.rows

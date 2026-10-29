@@ -20,7 +20,7 @@ class OpError(Exception):
 
 
 def upload_bytes(store: FileStore, filename: str, data: bytes) -> dict:
-    """上传文件内容 → 解析出各工作表(列、行数、原始预览)"""
+    """上传文件内容 → 解析出各工作表(列、行数、原始预览)。单次读取,预览复用同一份网格"""
     suffix = Path(filename or "").suffix.lower()
     if suffix not in excel_io.SUPPORTED_SUFFIXES:
         raise OpError(
@@ -29,22 +29,20 @@ def upload_bytes(store: FileStore, filename: str, data: bytes) -> dict:
     file_id = store.save(filename, suffix, io.BytesIO(data))
     path = store.path(file_id)
     try:
-        tables = excel_io.read_tables(path)
-        previews = excel_io.raw_preview(path)
+        described = excel_io.describe_file(path)
     except Exception as e:
         raise OpError(f"文件解析失败:{e}")
-
+    if not described:
+        raise OpError("文件中没有可读取的工作表")
     sheets = [
         {
             "name": name,
-            "row_count": len(df),
-            "columns": list(df.columns),
-            "raw_preview": previews.get(name, []),
+            "row_count": t["row_count"],
+            "columns": t["columns"],
+            "raw_preview": t["raw_preview"],
         }
-        for name, df in tables.items()
+        for name, t in described.items()
     ]
-    if not sheets:
-        raise OpError("文件中没有可读取的工作表")
     return {"file_id": file_id, "filename": filename, "sheets": sheets}
 
 
@@ -76,20 +74,38 @@ def _validate(payload: dict, model=CompareRequest):
         raise OpError(f"参数“{loc}”不合法:{err.get('msg', str(e))}")
 
 
-def _load_df(store: FileStore, file_id: str, sheet: str, header_row: int, side: str):
-    path = store.path(file_id)
-    if path is None:
-        raise OpError(f"表{side}的文件不存在或已过期,请重新上传")
-    try:
-        return excel_io.read_table(path, sheet, header_row)
-    except Exception as e:
-        raise OpError(f"表{side}解析失败:{e}")
-
-
 def _run(store: FileStore, payload: dict):
     req = _validate(payload)
-    df_a = _load_df(store, req.left_file_id, req.left_sheet, req.left_header_row, "A")
-    df_b = _load_df(store, req.right_file_id, req.right_sheet, req.right_header_row, "B")
+    path_a = store.path(req.left_file_id)
+    path_b = store.path(req.right_file_id)
+    if path_a is None:
+        raise OpError("表A的文件不存在或已过期,请重新上传")
+    if path_b is None:
+        raise OpError("表B的文件不存在或已过期,请重新上传")
+
+    if req.mode == CompareMode.CELL:
+        # 坐标模式:不做表头假设,网格逐格比较(含公式层)
+        try:
+            grid_a = excel_io.read_grid(path_a, req.left_sheet)[req.left_sheet]
+            grid_b = excel_io.read_grid(path_b, req.right_sheet)[req.right_sheet]
+            fa = excel_io.read_formulas(path_a).get(req.left_sheet, {})
+            fb = excel_io.read_formulas(path_b).get(req.right_sheet, {})
+        except Exception as e:
+            raise OpError(f"坐标对比失败:{e}")
+        # 坐标范式由 compare_grids 决定;mode 仍表达"输出差异还是输出一致"
+        outcome = comparer.compare_grids(grid_a, grid_b, fa, fb, comparer.MODE_DIFF)
+        return req, outcome
+
+    if not req.left_keys or not req.right_keys:
+        raise OpError("请先选择关键列;表没有关键列时可用「坐标对比」模式")
+    try:
+        df_a = excel_io.read_table(path_a, req.left_sheet, req.left_header_row)
+    except Exception as e:
+        raise OpError(f"表A解析失败:{e}")
+    try:
+        df_b = excel_io.read_table(path_b, req.right_sheet, req.right_header_row)
+    except Exception as e:
+        raise OpError(f"表B解析失败:{e}")
 
     if len(req.left_keys) != len(req.right_keys):
         raise OpError("表A与表B的关键列数量不一致,请按顺序一一对应")
@@ -104,6 +120,22 @@ def _run(store: FileStore, payload: dict):
     return req, outcome
 
 
+def _unmatched_sheets(store: FileStore, file_id_a: str, file_id_b: str) -> dict[str, list[str]]:
+    """两文件各有哪些工作表是对方没有的(轻量元数据读取,失败不影响主流程)"""
+    try:
+        path_a, path_b = store.path(file_id_a), store.path(file_id_b)
+        if path_a is None or path_b is None:
+            return {}
+        names_a = set(excel_io.sheet_names(path_a))
+        names_b = set(excel_io.sheet_names(path_b))
+        return {
+            "仅表A的工作表": sorted(names_a - names_b),
+            "仅表B的工作表": sorted(names_b - names_a),
+        }
+    except Exception:
+        return {}
+
+
 def compare_page(store: FileStore, payload: dict) -> dict:
     req, outcome = _run(store, payload)
     if req.page_size == 0:
@@ -111,6 +143,7 @@ def compare_page(store: FileStore, payload: dict) -> dict:
     else:
         start = (req.page - 1) * req.page_size
         rows = outcome.rows[start : start + req.page_size]
+    unmatched_sheets = _unmatched_sheets(store, req.left_file_id, req.right_file_id)
     return {
         "mode": req.mode.value,
         "total": len(outcome.rows),
@@ -118,13 +151,14 @@ def compare_page(store: FileStore, payload: dict) -> dict:
         "rows": rows,
         "summary": outcome.summary,
         "unmatched_columns": {k: v for k, v in outcome.unmatched_columns.items() if v},
+        "unmatched_sheets": {k: v for k, v in unmatched_sheets.items() if v},
     }
 
 
 def export_result(store: FileStore, payload: dict) -> tuple[str, bytes]:
     req = _validate({**payload, "format": payload.get("format", "xlsx")}, model=ExportRequest)
     _, outcome = _run(store, payload)
-    mode_name = "找不同" if req.mode == CompareMode.DIFF else "找相同"
+    mode_name = {"diff": "找不同", "same": "找相同", "cell": "坐标对比"}[req.mode.value]
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if req.format == "csv":
         return f"对比结果_{mode_name}_{stamp}.csv", exporter.to_csv(outcome)

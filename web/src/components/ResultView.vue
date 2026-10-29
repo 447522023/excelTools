@@ -36,7 +36,7 @@ function rowKey(row: Record<string, string>): string {
 
 const summaryChips = computed(() => {
   const s = data.value?.summary ?? {}
-  return [
+  const chips = [
     { label: '表A总行数', num: s['表A总行数'] ?? 0, color: '#3c4a66' },
     { label: '表B总行数', num: s['表B总行数'] ?? 0, color: '#3c4a66' },
     { label: '完全一致', num: s['一致'] ?? 0, color: '#18a058' },
@@ -44,7 +44,29 @@ const summaryChips = computed(() => {
     { label: '仅表A有', num: s['仅表A'] ?? 0, color: '#d97706' },
     { label: '仅表B有', num: s['仅表B'] ?? 0, color: '#2563eb' },
   ]
+  if (props.req.mode === 'cell') {
+    chips.push(
+      { label: '差异格', num: s['差异格'] ?? 0, color: '#d94030' },
+      { label: '公式差异格', num: s['公式差异格'] ?? 0, color: '#9333ea' },
+    )
+  }
+  return chips
 })
+
+// 只在一侧存在的工作表,如实提示(对标专业 diff 工具的"新增/删除工作表")
+const unmatchedSheetsTip = computed(() => {
+  const u = data.value?.unmatched_sheets ?? {}
+  const parts: string[] = []
+  if (u['仅表A的工作表']?.length) parts.push(`仅表A有:${u['仅表A的工作表'].join('、')}`)
+  if (u['仅表B的工作表']?.length) parts.push(`仅表B有:${u['仅表B的工作表'].join('、')}`)
+  return parts.join(';')
+})
+
+const MODE_META: Record<string, { label: string; type: 'error' | 'success' | 'info' }> = {
+  diff: { label: '找不同', type: 'error' },
+  same: { label: '找相同', type: 'success' },
+  cell: { label: '坐标对比', type: 'info' },
+}
 
 // 名字对不上、未参与对比的列,如实提示而不是悄悄丢掉
 const unmatchedTip = computed(() => {
@@ -104,8 +126,8 @@ onMounted(load)
   <n-card size="small">
     <template #header>
       对比结果
-      <n-tag :type="req.mode === 'diff' ? 'error' : 'success'" size="small" :bordered="false" style="margin-left: 8px">
-        {{ req.mode === 'diff' ? '找不同' : '找相同' }}
+      <n-tag :type="MODE_META[req.mode]?.type ?? 'default'" size="small" :bordered="false" style="margin-left: 8px">
+        {{ MODE_META[req.mode]?.label ?? req.mode }}
       </n-tag>
     </template>
     <template #header-extra>
@@ -128,6 +150,10 @@ onMounted(load)
 
     <n-alert v-if="unmatchedTip" type="warning" :bordered="false" style="margin-bottom: 8px">
       以下列在两个表中名字对不上,未参与对比(可检查表头行选择或表头内容):{{ unmatchedTip }}
+    </n-alert>
+
+    <n-alert v-if="unmatchedSheetsTip" type="info" :bordered="false" style="margin-bottom: 8px">
+      以下工作表只在一侧存在,本次对比未覆盖:{{ unmatchedSheetsTip }}
     </n-alert>
 
     <div style="font-size: 12px; color: #7a8699; margin-bottom: 8px">

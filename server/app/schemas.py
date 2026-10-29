@@ -5,8 +5,9 @@ from pydantic import BaseModel, Field
 
 
 class CompareMode(str, Enum):
-    DIFF = "diff"  # 找不同
-    SAME = "same"  # 找相同
+    DIFF = "diff"  # 找不同(按关键列匹配行)
+    SAME = "same"  # 找相同(按关键列匹配行)
+    CELL = "cell"  # 坐标对比(按单元格坐标逐格比较值与公式,无需关键列)
 
 
 class SheetInfo(BaseModel):
@@ -45,9 +46,9 @@ class CompareRequest(BaseModel):
     # 表头所在行数(1 起,该行之上的内容会被忽略)
     left_header_row: int = Field(default=1, ge=1)
     right_header_row: int = Field(default=1, ge=1)
-    # 关键列:左右各自选择,按顺序一一对应,数量必须一致
-    left_keys: list[str] = Field(min_length=1)
-    right_keys: list[str] = Field(min_length=1)
+    # 关键列:左右各自选择,按顺序一一对应,数量必须一致(坐标对比模式无需关键列)
+    left_keys: list[str] = Field(default_factory=list)
+    right_keys: list[str] = Field(default_factory=list)
     mode: CompareMode = CompareMode.DIFF
     # 参与值比较的列(用左侧列名,须为两表共有列);为 None 时默认"全部共有列(不含关键列)"
     compare_columns: list[str] | None = None
@@ -63,6 +64,8 @@ class CompareResponse(BaseModel):
     summary: dict[str, int]
     # 名字对不上、只在一侧存在的列(未参与对比):"仅表A的列" / "仅表B的列"
     unmatched_columns: dict[str, list[str]] = Field(default_factory=dict)
+    # 只在一侧存在的工作表:"仅表A的工作表" / "仅表B的工作表"
+    unmatched_sheets: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class ExportRequest(CompareRequest):

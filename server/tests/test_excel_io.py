@@ -179,3 +179,54 @@ def test_raw_preview_no_header_assumption(tmp_path):
     assert grid[0][0] == "2026年10月员工名单(内部资料)"
     assert grid[2][:3] == ["编号", "名称", "数量"]
     assert grid[3][0] == "1001"
+
+
+# ---------------- 嗅探 / 网格 / 公式 / 空表 ----------------
+
+
+def test_sniff_renamed_xlsx(tmp_path):
+    # 扩展名是 .xls 但内容是 xlsx(zip 头):按内容读,不再报 xlrd 错
+    p = tmp_path / "renamed.xls"
+    make_xlsx(tmp_path).replace(tmp_path / "t.xlsx")
+    (tmp_path / "t.xlsx").rename(p)
+    df = excel_io.read_table(p, "S", header_row=3)
+    assert list(df.columns) == ["编号", "名称", "数量"]
+
+
+def test_read_grid_and_formulas(tmp_path):
+    from openpyxl import Workbook
+
+    p = tmp_path / "f.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "S"
+    ws["A1"], ws["B1"] = 10, "=A1+1"
+    wb.save(p)
+    grid = excel_io.read_grid(p, "S")["S"]
+    assert grid[0][0] == "10"
+    formulas = excel_io.read_formulas(p)["S"]
+    assert formulas[(0, 1)] == "=A1+1"
+
+
+def test_empty_sheet_no_crash(tmp_path):
+    from openpyxl import Workbook
+
+    p = tmp_path / "empty.xlsx"
+    wb = Workbook()
+    wb.active.title = "S"
+    wb.save(p)
+    # 上传路径:空表不报错,展示为 0 行 0 列
+    described = excel_io.describe_file(p)
+    assert described["S"]["row_count"] == 0
+    # 网格路径:可正常对比
+    assert excel_io.read_grid(p, "S")["S"] == []
+
+
+def test_sheet_names(tmp_path):
+    assert excel_io.sheet_names(make_xlsx(tmp_path)) == ["S"]
+
+
+def test_describe_file_single_read(tmp_path):
+    d = excel_io.describe_file(make_merged_header_xlsx(tmp_path), header_row=1)
+    assert d["S"]["columns"][:2] == ["编号", "基本信息-姓名"]
+    assert d["S"]["raw_preview"][0][0] == "编号"

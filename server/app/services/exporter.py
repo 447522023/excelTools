@@ -61,7 +61,8 @@ def to_xlsx(outcome: CompareOutcome) -> bytes:
                     ws.cell(row=r, column=right_col + 1).fill = _DIFF_FILL
 
     for i, name in enumerate(columns, start=1):
-        width = max(len(str(name)), *(len(str(row.get(name, ""))) for row in outcome.rows[:200])) + 4
+        rows_head = outcome.rows[:200]
+        width = max([len(str(name))] + [len(str(row.get(name, ""))) for row in rows_head]) + 4
         ws.column_dimensions[get_column_letter(i)].width = min(width, 45)
 
     _append_unmatched_sheet(wb, outcome)

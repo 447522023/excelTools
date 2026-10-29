@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.routers import compare, downloads, files
 
-app = FastAPI(title="表格对比工具", version="0.1.1")
+app = FastAPI(title="表格对比工具", version="0.2.0")
 
 # 开发期 web 跑在 vite(5173),通过 proxy 转发 /api;生产/离线模式同源,不需要 CORS
 app.add_middleware(
