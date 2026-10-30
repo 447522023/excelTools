@@ -26,6 +26,7 @@ const mode = ref<CompareMode>('diff')
 const leftKeys = ref<string[]>([])
 const rightKeys = ref<string[]>([])
 const compareCols = ref<string[]>([]) // 空 = 默认全部共有列
+const compareFormulas = ref(false) // 对比公式(公式文本不同也算差异)
 
 const sharedColumns = computed(() => {
   const a = leftSel.value?.columns ?? []
@@ -61,6 +62,7 @@ function runCompare() {
     right_keys: rightKeys.value,
     mode: mode.value,
     compare_columns: compareCols.value.length ? compareCols.value : null,
+    compare_formulas: mode.value !== 'cell' ? compareFormulas.value : false,
     page: 1,
     page_size: 0,
   }
@@ -74,6 +76,7 @@ function reset() {
   leftKeys.value = []
   rightKeys.value = []
   compareCols.value = []
+  compareFormulas.value = false
   req.value = null
   step.value = 1
   panelKey.value += 1
@@ -115,6 +118,7 @@ function reset() {
           v-model:left-keys="leftKeys"
           v-model:right-keys="rightKeys"
           v-model:compare-columns="compareCols"
+          v-model:compare-formulas="compareFormulas"
           :left-columns="leftSel?.columns ?? []"
           :right-columns="rightSel?.columns ?? []"
           :shared-columns="sharedColumns"

@@ -98,12 +98,28 @@ def _run(store: FileStore, payload: dict):
 
     if not req.left_keys or not req.right_keys:
         raise OpError("请先选择关键列;表没有关键列时可用「坐标对比」模式")
+    formulas_a = formulas_b = None
+    row_origins_a = row_origins_b = None
+    col_origins_a = col_origins_b = None
     try:
-        df_a = excel_io.read_table(path_a, req.left_sheet, req.left_header_row)
+        if req.compare_formulas:
+            # 公式层对比:额外取数据行/列在工作表里的原始坐标,用于查公式文本
+            df_a, row_origins_a, col_origins_a = excel_io.read_table_with_pos(
+                path_a, req.left_sheet, req.left_header_row
+            )
+            formulas_a = excel_io.read_formulas(path_a).get(req.left_sheet, {})
+        else:
+            df_a = excel_io.read_table(path_a, req.left_sheet, req.left_header_row)
     except Exception as e:
         raise OpError(f"表A解析失败:{e}")
     try:
-        df_b = excel_io.read_table(path_b, req.right_sheet, req.right_header_row)
+        if req.compare_formulas:
+            df_b, row_origins_b, col_origins_b = excel_io.read_table_with_pos(
+                path_b, req.right_sheet, req.right_header_row
+            )
+            formulas_b = excel_io.read_formulas(path_b).get(req.right_sheet, {})
+        else:
+            df_b = excel_io.read_table(path_b, req.right_sheet, req.right_header_row)
     except Exception as e:
         raise OpError(f"表B解析失败:{e}")
 
@@ -115,7 +131,14 @@ def _run(store: FileStore, payload: dict):
         raise OpError(f"关键列不存在:表A缺少 {missing_a},表B缺少 {missing_b}")
 
     outcome = comparer.compare_tables(
-        df_a, df_b, req.left_keys, req.right_keys, req.mode, req.compare_columns
+        df_a, df_b, req.left_keys, req.right_keys, req.mode, req.compare_columns,
+        compare_formulas=req.compare_formulas,
+        formulas_a=formulas_a,
+        row_origins_a=row_origins_a,
+        col_origins_a=col_origins_a,
+        formulas_b=formulas_b,
+        row_origins_b=row_origins_b,
+        col_origins_b=col_origins_b,
     )
     return req, outcome
 

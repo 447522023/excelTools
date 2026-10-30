@@ -67,6 +67,72 @@ def test_numeric_normalization():
     assert out.summary[STATUS_SAME] == 1
 
 
+# -------- 公式层对比(issue #1:公式变了但计算值相同) --------
+
+_COLS = {"编号": 0, "金额": 4}
+
+
+def _formula_kwargs(fa, fb):
+    origins = [1]
+    return dict(
+        compare_formulas=True,
+        formulas_a=fa, row_origins_a=origins, col_origins_a=dict(_COLS),
+        formulas_b=fb, row_origins_b=origins, col_origins_b=dict(_COLS),
+    )
+
+
+def test_formula_only_change_detected_when_enabled():
+    # 值同为 120000,公式 =C2*D2 改成 =D2*C2:默认判"一致",开启公式对比后计为差异
+    df_a = make({"编号": ["1"], "金额": ["120000"]})
+    df_b = make({"编号": ["1"], "金额": ["120000"]})
+    out = compare_tables(df_a, df_b, ["编号"], ["编号"], MODE_DIFF)
+    assert out.summary[STATUS_SAME] == 1  # 默认只比值(与 v0.1.1 行为一致)
+
+    out = compare_tables(
+        df_a, df_b, ["编号"], ["编号"], MODE_DIFF,
+        **_formula_kwargs({(1, 4): "=C2*D2"}, {(1, 4): "=D2*C2"}),
+    )
+    assert out.summary[STATUS_CHANGED] == 1
+    row = out.rows[0]
+    assert row["差异列"] == "金额[公式]"
+    # 值相同的情况下,（A）/（B）直接展示新旧公式,差异一目了然
+    assert row["金额（A）"] == "=C2*D2" and row["金额（B）"] == "=D2*C2"
+
+
+def test_same_formula_not_a_diff():
+    df_a = make({"编号": ["1"], "金额": ["120000"]})
+    df_b = make({"编号": ["1"], "金额": ["120000"]})
+    out = compare_tables(
+        df_a, df_b, ["编号"], ["编号"], MODE_DIFF,
+        **_formula_kwargs({(1, 4): "=C2*D2"}, {(1, 4): "=C2*D2"}),
+    )
+    assert out.summary[STATUS_SAME] == 1
+
+
+def test_formula_added_or_removed_counts_as_diff():
+    # 一侧有公式、另一侧是普通值:也算公式差异
+    df_a = make({"编号": ["1"], "金额": ["120000"]})
+    df_b = make({"编号": ["1"], "金额": ["120000"]})
+    out = compare_tables(
+        df_a, df_b, ["编号"], ["编号"], MODE_DIFF,
+        **_formula_kwargs({(1, 4): "=C2*D2"}, {}),
+    )
+    assert out.rows[0]["差异列"] == "金额[公式]"
+    assert out.rows[0]["金额（B）"] == "(无公式)"
+
+
+def test_same_mode_excludes_formula_only_diff():
+    # 找相同 + 开启公式对比:公式不同的行不算"一致",不进入结果
+    df_a = make({"编号": ["1"], "金额": ["120000"]})
+    df_b = make({"编号": ["1"], "金额": ["120000"]})
+    out = compare_tables(
+        df_a, df_b, ["编号"], ["编号"], MODE_SAME,
+        **_formula_kwargs({(1, 4): "=C2*D2"}, {(1, 4): "=D2*C2"}),
+    )
+    assert out.rows == []
+    assert out.summary[STATUS_CHANGED] == 1 and out.summary[STATUS_SAME] == 0
+
+
 def test_unmatched_columns_reported():
     # 只在一侧存在的列应如实报告,而不是悄悄从结果里消失
     df_b = make({"编号": ["1", "2", "4"], "名称": ["甲", "乙改", "丁"], "数量": ["10", "25", "40"], "备注": ["a", "b", "c"]})

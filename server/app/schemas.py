@@ -52,6 +52,9 @@ class CompareRequest(BaseModel):
     mode: CompareMode = CompareMode.DIFF
     # 参与值比较的列(用左侧列名,须为两表共有列);为 None 时默认"全部共有列(不含关键列)"
     compare_columns: list[str] | None = None
+    # 对比公式:开启后公式文本不同(即使计算结果相同)也计为差异,差异列标记"[公式]"。
+    # 默认关闭:Excel 自存时可能重写公式写法,避免大量无效差异。仅 xlsx/xlsm 有公式层。
+    compare_formulas: bool = False
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=0, le=100000)  # 0 = 不分页,返回全部
 

@@ -40,6 +40,19 @@ def _group_rows(df: pd.DataFrame, key_cols: list[str]) -> dict[tuple, list[int]]
     return groups
 
 
+def _formula_at(
+    formulas: dict | None,
+    row_origins: list[int] | None,
+    col_origins: dict[str, int] | None,
+    i: int,
+    col: str,
+) -> str | None:
+    """第 i 行数据在 col 列的公式文本(经原始坐标映射;无公式层信息时返回 None)"""
+    if not formulas or not row_origins or not col_origins or col not in col_origins:
+        return None
+    return formulas.get((row_origins[i], col_origins[col]))
+
+
 def compare_tables(
     df_a: pd.DataFrame,
     df_b: pd.DataFrame,
@@ -47,6 +60,14 @@ def compare_tables(
     keys_b: list[str],
     mode: str,
     compare_columns: list[str] | None = None,
+    *,
+    compare_formulas: bool = False,
+    formulas_a: dict | None = None,
+    row_origins_a: list[int] | None = None,
+    col_origins_a: dict[str, int] | None = None,
+    formulas_b: dict | None = None,
+    row_origins_b: list[int] | None = None,
+    col_origins_b: dict[str, int] | None = None,
 ) -> CompareOutcome:
     shared = [c for c in df_a.columns if c in df_b.columns]
     unmatched_columns = {
@@ -88,14 +109,31 @@ def compare_tables(
             has_a, has_b = i < len(list_a), i < len(list_b)
             if has_a and has_b:
                 ia, ib = list_a[i], list_b[i]
-                diffs = [c for c in compare_columns if df_a.at[ia, c] != df_b.at[ib, c]]
+                diffs: list[str] = []
+                formula_changed: dict[str, tuple[str, str]] = {}
+                for c in compare_columns:
+                    va, vb = df_a.at[ia, c], df_b.at[ib, c]
+                    if va != vb:
+                        diffs.append(c)
+                    elif compare_formulas:
+                        # 值相同再查公式层:公式文本不同也算差异,差异列标记 [公式]
+                        fa_t = _formula_at(formulas_a, row_origins_a, col_origins_a, ia, c)
+                        fb_t = _formula_at(formulas_b, row_origins_b, col_origins_b, ib, c)
+                        if (fa_t or None) != (fb_t or None):
+                            diffs.append(f"{c}[公式]")
+                            formula_changed[c] = (fa_t or "(无公式)", fb_t or "(无公式)")
                 if diffs:
                     summary[STATUS_CHANGED] += 1
                     if mode == MODE_DIFF:
                         row = {"状态": STATUS_CHANGED, **dict(zip(keys_a, key)), "差异列": "、".join(diffs)}
                         for c in compare_columns:
-                            row[f"{c}（A）"] = df_a.at[ia, c]
-                            row[f"{c}（B）"] = df_b.at[ib, c]
+                            # 公式变动(值相同)的列直接展示新旧公式,差异一目了然
+                            if c in formula_changed:
+                                row[f"{c}（A）"] = formula_changed[c][0]
+                                row[f"{c}（B）"] = formula_changed[c][1]
+                            else:
+                                row[f"{c}（A）"] = df_a.at[ia, c]
+                                row[f"{c}（B）"] = df_b.at[ib, c]
                         rows.append(row)
                 else:
                     summary[STATUS_SAME] += 1

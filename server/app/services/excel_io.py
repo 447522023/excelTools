@@ -209,10 +209,16 @@ def _anchor_values(
     return anchor
 
 
-def _frame_from_grid(grid: list[list], merges: list[_Merge], header_row: int) -> pd.DataFrame:
-    """原始网格 + 合并信息 + 表头行(1 起)-> DataFrame(列名为拼接后的表头)"""
+def _frame_and_origins(
+    grid: list[list], merges: list[_Merge], header_row: int
+) -> tuple[pd.DataFrame, list[int], dict[str, int]]:
+    """表头解析结果 + 原始坐标(把 DataFrame 单元格映射回工作表坐标,公式对比用)。
+
+    返回 (df, row_origins, col_origins):row_origins[i] 为第 i 行数据在工作表里的
+    0 起原始行号(被剔除的空行不占位);col_origins[列名] 为该列 0 起原始列号。
+    """
     if not grid:  # 空工作表:不报错,交由上层决定(坐标对比可用,表头解析会给明确提示)
-        return _normalize_df(pd.DataFrame())
+        return _normalize_df(pd.DataFrame()), [], {}
     if header_row < 1 or header_row > len(grid):
         raise ValueError(f"表头行 {header_row} 超出表格范围(共 {len(grid)} 行)")
     hr = header_row - 1
@@ -235,17 +241,29 @@ def _frame_from_grid(grid: list[list], merges: list[_Merge], header_row: int) ->
             fallback_cols.add(c)
 
     # 数据从表头带下方开始;剔除整行全空的行(合并表头下方常有多余空行)
-    data = [
-        row for row in grid[bottom + 1 :] if any(normalize_value(v) for v in row)
-    ]
+    data: list[list] = []
+    row_origins: list[int] = []
+    for offset, row in enumerate(grid[bottom + 1 :]):
+        if any(normalize_value(v) for v in row):
+            data.append(row)
+            row_origins.append(bottom + 1 + offset)
     # 先规范化再判断幻影列:None/NaN 都归一为 "",全空列才能被正确剔除
     df = _normalize_df(pd.DataFrame(data, columns=names))
-    keep = [
-        name
+    keep_mask = [
+        i not in fallback_cols or not df[name].eq("").all()
         for i, name in enumerate(names)
-        if i not in fallback_cols or not df[name].eq("").all()
     ]
-    return df[keep]
+    # 重名列去重加后缀不改变列的位置顺序,列名与原始列号仍一一对应
+    col_origins = {
+        name: i for i, (name, keep) in enumerate(zip(df.columns, keep_mask)) if keep
+    }
+    kept = df[[name for name, keep in zip(df.columns, keep_mask) if keep]]
+    return kept, row_origins, col_origins
+
+
+def _frame_from_grid(grid: list[list], merges: list[_Merge], header_row: int) -> pd.DataFrame:
+    """原始网格 + 合并信息 + 表头行(1 起)-> DataFrame(列名为拼接后的表头)"""
+    return _frame_and_origins(grid, merges, header_row)[0]
 
 
 def sniff_kind(path: Path) -> str:
@@ -310,10 +328,10 @@ def _raw_sheets(path: Path) -> dict[str, pd.DataFrame]:
 
 
 @lru_cache(maxsize=2)
-def _frames_cached(
+def _parsed_cached(
     path_str: str, mtime: float, sheet: str | None, header_row: int
-) -> dict[str, pd.DataFrame]:
-    """表头解析结果缓存:上传后紧接着的对比/导出不再重复解析同一文件。
+) -> dict[str, tuple[pd.DataFrame, list[int], dict[str, int]]]:
+    """表头解析结果缓存(含原始坐标):上传后紧接着的对比/导出不再重复解析同一文件。
 
     返回值视为只读(调用方不得原地修改 DataFrame)。
     """
@@ -327,7 +345,7 @@ def _frames_cached(
             raise ValueError(f"没有名为“{sheet}”的工作表")
         names = [sheet]
     return {
-        name: _frame_from_grid(_grid_rows(grids[name]), merges.get(name, []), header_row)
+        name: _frame_and_origins(_grid_rows(grids[name]), merges.get(name, []), header_row)
         for name in names
     }
 
@@ -336,12 +354,13 @@ def _read_excel_sheets(
     path: Path, sheet: str | None, header_row: int
 ) -> dict[str, pd.DataFrame]:
     stat = path.stat()
-    return _frames_cached(str(path), stat.st_mtime, sheet, max(1, header_row))
+    parsed = _parsed_cached(str(path), stat.st_mtime, sheet, max(1, header_row))
+    return {name: triple[0] for name, triple in parsed.items()}
 
 
 def _read_csv(path: Path, header_row: int) -> pd.DataFrame:
     # 统一走网格解析管线,与 excel 的列名/空行处理完全一致(跨格式对比行为一致)
-    return _frame_from_grid(_grid_rows(_raw_sheets(path)["CSV"]), [], max(1, header_row))
+    return _frame_and_origins(_grid_rows(_raw_sheets(path)["CSV"]), [], max(1, header_row))[0]
 
 
 def _check_supported(path: Path) -> None:
@@ -369,6 +388,23 @@ def read_table(path: Path, sheet: str, header_row: int = 1) -> pd.DataFrame:
             raise ValueError(f"CSV 文件只有一个名为 CSV 的表,没有“{sheet}”")
         return _read_csv(path, max(1, header_row))
     return _read_excel_sheets(path, sheet, max(1, header_row))[sheet]
+
+
+def read_table_with_pos(
+    path: Path, sheet: str, header_row: int = 1
+) -> tuple[pd.DataFrame, list[int], dict[str, int]]:
+    """read_table 的增强版:额外给出数据行/列在工作表里的原始坐标(公式对比用)"""
+    _check_supported(path)
+    hr = max(1, header_row)
+    if sniff_kind(path) == "csv":
+        if sheet != "CSV":
+            raise ValueError(f"CSV 文件只有一个名为 CSV 的表,没有“{sheet}”")
+        return _frame_and_origins(_grid_rows(_raw_sheets(path)["CSV"]), [], hr)
+    stat = path.stat()
+    parsed = _parsed_cached(str(path), stat.st_mtime, sheet, hr)
+    if sheet not in parsed:
+        raise ValueError(f"没有名为“{sheet}”的工作表")
+    return parsed[sheet]
 
 
 def sheet_names(path: Path) -> list[str]:

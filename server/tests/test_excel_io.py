@@ -230,3 +230,61 @@ def test_describe_file_single_read(tmp_path):
     d = excel_io.describe_file(make_merged_header_xlsx(tmp_path), header_row=1)
     assert d["S"]["columns"][:2] == ["编号", "基本信息-姓名"]
     assert d["S"]["raw_preview"][0][0] == "编号"
+
+
+def test_read_table_with_pos_tracks_origins(tmp_path):
+    # 公式对比的前置:数据行/列要能映射回工作表原始坐标(空行被剔除但行号不塌缩)
+    p = tmp_path / "t.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "S"
+    ws.append(["编号", "金额"])
+    ws.append(["1", "=C2*D2"])
+    ws.append([])  # 空行
+    ws.append(["2", "=C3*D3"])
+    wb.save(p)
+    df, row_origins, col_origins = excel_io.read_table_with_pos(p, "S")
+    assert list(df.columns) == ["编号", "金额"]
+    assert row_origins == [1, 3]
+    assert col_origins == {"编号": 0, "金额": 1}
+    formulas = excel_io.read_formulas(p)["S"]
+    assert formulas[(1, 1)] == "=C2*D2"
+    assert formulas[(3, 1)] == "=C3*D3"
+
+
+def test_formula_compare_pipeline_no_cached_values(tmp_path):
+    # issue #1 的衍生场景:程序生成的公式文件没有缓存值,值层读到空串;
+    # 默认会被判"一致"(差异被吞),开启 compare_formulas 后能检出
+    from app.services import comparer
+
+    def build(path, formula):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "S"
+        ws.append(["编号", "数量", "单价", "金额"])
+        ws.append(["001", 300, 400, formula])
+        wb.save(path)
+
+    a = tmp_path / "old.xlsx"
+    b = tmp_path / "new.xlsx"
+    build(a, "=B2*C2")
+    build(b, "=C2*B2")
+
+    df_a, ro_a, co_a = excel_io.read_table_with_pos(a, "S")
+    df_b, ro_b, co_b = excel_io.read_table_with_pos(b, "S")
+    fa = excel_io.read_formulas(a)["S"]
+    fb = excel_io.read_formulas(b)["S"]
+
+    out_default = comparer.compare_tables(df_a, df_b, ["编号"], ["编号"], "diff")
+    assert out_default.summary["一致"] == 1  # 无缓存值 -> 金额两侧都读到 ""
+
+    out = comparer.compare_tables(
+        df_a, df_b, ["编号"], ["编号"], "diff",
+        compare_formulas=True,
+        formulas_a=fa, row_origins_a=ro_a, col_origins_a=co_a,
+        formulas_b=fb, row_origins_b=ro_b, col_origins_b=co_b,
+    )
+    assert out.summary["值不一致"] == 1
+    assert out.rows[0]["差异列"] == "金额[公式]"
+    assert out.rows[0]["金额（A）"] == "=B2*C2"
+    assert out.rows[0]["金额（B）"] == "=C2*B2"

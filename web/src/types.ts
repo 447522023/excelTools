@@ -49,6 +49,8 @@ export interface CompareRequest {
   right_keys: string[]
   mode: CompareMode
   compare_columns: string[] | null
+  /** 对比公式:公式文本不同(即使计算结果相同)也计为差异;仅 diff/same 模式生效 */
+  compare_formulas?: boolean
   page: number
   /** 0 = 不分页,返回全部结果 */
   page_size: number

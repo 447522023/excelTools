@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NButton, NCard, NRadioButton, NRadioGroup, NSelect, NSpace } from 'naive-ui'
+import { NButton, NCard, NCheckbox, NRadioButton, NRadioGroup, NSelect, NSpace } from 'naive-ui'
 import type { CompareMode } from '../types'
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const props = defineProps<{
   leftKeys: string[]
   rightKeys: string[]
   compareColumns: string[]
+  compareFormulas: boolean
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   'update:leftKeys': [v: string[]]
   'update:rightKeys': [v: string[]]
   'update:compareColumns': [v: string[]]
+  'update:compareFormulas': [v: boolean]
   run: []
   back: []
 }>()
@@ -116,6 +118,19 @@ const keyCountHint = computed(() => {
         />
         <div v-if="!hasComparable" style="font-size: 12px; color: #d94030; margin-top: 6px">
           没有可比较的共有列:两表除关键列外没有同名列
+        </div>
+      </div>
+
+      <div>
+        <n-checkbox
+          :checked="compareFormulas"
+          @update:checked="emit('update:compareFormulas', $event)"
+        >
+          对比公式(xlsx / xlsm)
+        </n-checkbox>
+        <div style="font-size: 12px; color: #7a8699; margin-top: 4px">
+          开启后,公式文本不同(即使计算结果相同)也计为差异,差异列标记「[公式]」并展示新旧公式;
+          系统导出、程序生成等无缓存值的文件建议开启,否则公式单元格按空值参与对比
         </div>
       </div>
       </template>
