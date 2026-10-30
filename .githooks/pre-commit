@@ -1,0 +1,47 @@
+#!/bin/sh
+# 每次提交自动追加版本号:补丁号 +1(如 0.2.1 -> 0.2.2),版本文件随本次提交入库。
+# 这样离线安装包 / 部署包的文件名(build 脚本读 app.version)天然做到"每次修改一个新版本"。
+#
+# 约定:
+# - 想手动定大版本(如 0.3.0):直接改 server/app/main.py 与 web/package.json 后单独提交,
+#   钩子检测到"只改了版本文件"会跳过追加,不会把 0.3.0 顶成 0.3.1;
+# - 临时不想升版本:git commit --no-verify。
+MAIN="server/app/main.py"
+PKG="web/package.json"
+
+version=$(grep -o 'version="[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"' "$MAIN" | head -1 | grep -o '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$')
+[ -z "$version" ] && exit 0  # 没读到语义化版本,静默放行,不挡提交
+
+staged=$(git diff --cached --name-only)
+[ -z "$staged" ] && exit 0
+others=$(printf '%s\n' "$staged" | grep -v -E "^(server/app/main\.py|web/package\.json)$" | grep -v '^$')
+[ -z "$others" ] && exit 0  # 只改版本文件的提交 = 手动定版本,跳过
+
+major=$(printf '%s' "$version" | cut -d. -f1)
+minor=$(printf '%s' "$version" | cut -d. -f2)
+patch=$(printf '%s' "$version" | cut -d. -f3)
+new="$major.$minor.$((patch + 1))"
+
+python - "$MAIN" "$PKG" "$version" "$new" <<'EOF'
+import json, sys
+from pathlib import Path
+
+main, pkg, old, new = sys.argv[1:5]
+p = Path(main)
+s = p.read_text(encoding="utf-8")
+assert f'version="{old}"' in s, f"main.py 里没有 version=\"{old}\""
+p.write_text(s.replace(f'version="{old}"', f'version="{new}"'), encoding="utf-8")
+
+q = Path(pkg)
+d = json.loads(q.read_text(encoding="utf-8"))
+d["version"] = new
+q.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+EOF
+if [ $? -ne 0 ]; then
+  echo "版本号追加失败,提交中止(可用 --no-verify 跳过)" >&2
+  exit 1
+fi
+
+git add "$MAIN" "$PKG"
+echo "版本号自动追加: $version -> $new"
+exit 0

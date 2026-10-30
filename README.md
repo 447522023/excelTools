@@ -103,6 +103,12 @@ python client/build_offline.py
 - 不选"参与比较的列"时默认比较全部共有列(不含关键列)
 - 文件类型按**内容**识别(zip / OLE2 / 文本),扩展名误存或改名的文件也能正确读取
 
+## 版本号
+
+- **每次提交自动追加**:git 钩子(`.githooks/pre-commit`)把补丁号 +1(如 0.2.1 -> 0.2.2),`server/app/main.py` 与 `web/package.json` 随本次提交一起入库;离线包/部署包文件名读的是 `app.version`,天然做到"每次修改一个新版本"
+- 克隆后需启用一次:`git config core.hooksPath .githooks`(仅本仓库生效)
+- 想手动定大版本(如 0.3.0):单独改两个版本文件后提交,钩子会跳过;临时不想升版本:`git commit --no-verify`
+
 ## 已知边界(v1)
 
 - 上传文件存于系统临时目录 `%TEMP%/excel_tools_uploads`,清理该目录即删除
